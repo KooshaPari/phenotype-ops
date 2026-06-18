@@ -5,8 +5,28 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
+
+
+def _safe_resolve(path: Path) -> Path:
+    """Resolve a path to its absolute form, guarding against traversal.
+
+    Only allows paths under /tmp, /Users, /home, or $HOME.
+    Unresolvable paths (e.g. empty) are returned as-is.
+    """
+    resolved = path.expanduser().resolve()
+    allowed = {
+        Path("/tmp").resolve(),
+        Path("/Users").resolve(),
+        Path("/home").resolve(),
+        Path(os.environ.get("HOME", "/nonexistent")).resolve(),
+        Path.cwd(),
+    }
+    if any(str(resolved).startswith(str(base)) for base in allowed):
+        return resolved
+    raise ValueError(f"Unsafe path rejected: {resolved}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -25,7 +45,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--state",
-        default="/tmp/policy-rotation-state.json",
+        default=str(Path.home() / ".cache" / "phenotype-policy-rotation" / "state.json"),
         help="State file for previous digest snapshots",
     )
     parser.add_argument(
@@ -54,7 +74,7 @@ def main() -> None:
     args = parse_args()
     repos = [r.strip() for r in args.repo_list.split(",") if r.strip()]
     base_dir = Path(args.repo_root)
-    state_path = Path(args.state)
+    state_path = _safe_resolve(Path(args.state))
     previous: dict = {}
     if state_path.exists():
         previous = json.loads(state_path.read_text(encoding="utf-8"))
@@ -97,7 +117,8 @@ def main() -> None:
 
     payload = {"generated_at": generated_at, "changes": changes, "entries": report}
     if args.out:
-        out_path = Path(args.out)
+        out_path = _safe_resolve(Path(args.out))
+        out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     else:
         print(json.dumps(payload, indent=2))

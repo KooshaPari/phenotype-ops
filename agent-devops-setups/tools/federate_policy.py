@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import hmac
+import os
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -14,6 +15,21 @@ from datetime import datetime, timezone
 ROOT = Path(__file__).resolve().parent.parent
 POLICY_ROOT = ROOT / "policies"
 EXT_ROOT = ROOT / "extensions" / "manifests"
+
+
+def _safe_resolve(path: Path, label: str = "path") -> Path:
+    """Resolve a path to its absolute form, guarding against traversal."""
+    resolved = path.expanduser().resolve()
+    allowed = {
+        Path("/tmp").resolve(),
+        Path("/Users").resolve(),
+        Path("/home").resolve(),
+        Path(os.environ.get("HOME", "/nonexistent")).resolve(),
+        Path.cwd(),
+    }
+    if any(str(resolved).startswith(str(base)) for base in allowed):
+        return resolved
+    raise ValueError(f"Unsafe {label} rejected: {resolved}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -147,8 +163,8 @@ def collect_files(
 
 def main() -> None:
     args = parse_args()
-    policy_dir = Path(args.policy_dir)
-    manifest_dir = Path(args.manifest_dir)
+    policy_dir = _safe_resolve(Path(args.policy_dir), "policy-dir")
+    manifest_dir = _safe_resolve(Path(args.manifest_dir), "manifest-dir")
     extension_list = [item.strip() for item in args.extensions.split(",") if item.strip()]
 
     layers, files, missing = collect_files(
@@ -209,7 +225,7 @@ def main() -> None:
         ).hexdigest()
         payload["audit"]["policy_signature"] = signature
 
-    out_path = Path(args.out)
+    out_path = _safe_resolve(Path(args.out), "out")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 

@@ -7,7 +7,23 @@ import argparse
 import hashlib
 import json
 import hmac
+import os
 from pathlib import Path
+
+
+def _safe_resolve(path: Path, label: str = "path") -> Path:
+    """Resolve a path to its absolute form, guarding against traversal."""
+    resolved = path.expanduser().resolve()
+    allowed = {
+        Path("/tmp").resolve(),
+        Path("/Users").resolve(),
+        Path("/home").resolve(),
+        Path(os.environ.get("HOME", "/nonexistent")).resolve(),
+        Path.cwd(),
+    }
+    if any(str(resolved).startswith(str(base)) for base in allowed):
+        return resolved
+    raise ValueError(f"Unsafe {label} rejected: {resolved}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -165,11 +181,11 @@ def validate_signature(payload: dict, sign_key: str) -> list[str]:
 
 def main() -> None:
     args = parse_args()
-    payload = load_json(Path(args.payload))
-    policy_schema = load_json(Path(args.policy_schema))
-    manifest_schema = load_json(Path(args.manifest_schema))
+    payload = load_json(_safe_resolve(Path(args.payload), "payload"))
+    policy_schema = load_json(_safe_resolve(Path(args.policy_schema), "policy-schema"))
+    manifest_schema = load_json(_safe_resolve(Path(args.manifest_schema), "manifest-schema"))
 
-    manifest_dir = Path(args.manifest_dir)
+    manifest_dir = _safe_resolve(Path(args.manifest_dir), "manifest-dir")
     errors = []
 
     errors.extend(validate_minimal_policy(payload))
