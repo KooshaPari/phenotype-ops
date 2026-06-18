@@ -1,0 +1,36 @@
+{
+  "name": "agentops-ci",
+  "version": "1.0.0",
+  "kind": "pipeline",
+  "scope": "agentops",
+  "targets": ["github-actions", "thegent", "repo-templates"],
+  "fragment": {
+    "ci": {
+      "required_checks": [
+        "policy-gate",
+        "lint",
+        "test",
+        "types"
+      ],
+      "default_matrix_size": "small",
+      "artifact_retention_days": 60
+    },
+    "policy": {
+      "audit_before_merge": true
+    }
+  },
+  "hooks": [
+    {
+      "name": "pre-merge-audit",
+      "when": "pre_merge",
+      "command": "python tools/federate_policy.py --repo {repo} --harness {harness} --user {user} --task-domain agentops --extensions {extensions} --out {out}"
+    }
+  ],
+  "constraints": {
+    "requires": {
+      "system.security": true
+    }
+  },
+  "integrations": ["github-actions", "thegent-policy"],
+  "enabled_by_default": false
+}

@@ -1,0 +1,16 @@
+{
+  "policy": {
+    "repo": {
+      "policy_hints": {
+        "managed_by": "agent-devops-setups",
+        "default_scope": "agentops"
+      },
+      "governance": {
+        "policy_federation": {
+          "enforced": true,
+          "required": true
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,28 @@
+version: "0.5"
+
+# agent-devops-setups - DevOps configuration
+# Native-first local development orchestration
+
+environment:
+  - PYTHONUNBUFFERED=1
+
+processes:
+  test:
+    command: uv run pytest tests/ -v
+    depends_on: {}
+    log_location: .logs/test.log
+
+  lint:
+    command: uv run ruff check .
+    depends_on: {}
+    log_location: .logs/lint.log
+
+  format:
+    command: uv run ruff format .
+    depends_on: {}
+    log_location: .logs/format.log
+
+  validate:
+    command: uv run python scripts/validate.py
+    depends_on: {}
+    log_location: .logs/validate.log

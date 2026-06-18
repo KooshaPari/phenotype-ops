@@ -1,0 +1,21 @@
+{
+  "policy": {
+    "repo": {
+      "name": "agent-devops-setups",
+      "policy_hints": {
+        "scopes": [
+          "system",
+          "user",
+          "harness",
+          "repo",
+          "task-domain",
+          "extensions"
+        ],
+        "sync_targets": ["docs/agent-policy"]
+      }
+    },
+    "documentation": {
+      "required_sections": ["architecture", "research", "scope-map", "handoff"]
+    }
+  }
+}

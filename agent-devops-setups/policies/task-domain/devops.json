@@ -1,0 +1,17 @@
+{
+  "policy": {
+    "task_domain": {
+      "name": "devops",
+      "pipelines": {
+        "ci": {
+          "must_have_witness": true,
+          "required_gate_state": "pass"
+        },
+        "release": {
+          "require_changelog": false,
+          "require_artifact_trace": true
+        }
+      }
+    }
+  }
+}

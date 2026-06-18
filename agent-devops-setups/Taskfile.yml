@@ -1,0 +1,67 @@
+version: '3'
+
+tasks:
+  help:
+    desc: "Show available tasks"
+    cmds:
+      - task --list
+
+  default:
+    cmds:
+      - task --list
+    silent: true
+
+  policy-sync:
+    desc: "Run full onboard for default harness/domain"
+    cmds:
+      - bash tools/onboard_repos.sh --harness codex --task-domain agentops --extensions codex-gate,agentops-ci
+
+  policy-sync-dry:
+    desc: "Run default onboard in dry-run mode"
+    cmds:
+      - bash tools/onboard_repos.sh --harness codex --task-domain agentops --extensions codex-gate,agentops-ci --mode dry-run
+
+  policy-matrix:
+    desc: "Run full matrix onboarding (codex,cursor-agent,claude,factory-droid x agentops,devops)"
+    cmds:
+      - bash tools/matrix_onboard.sh --mode write
+
+  policy-matrix-dry:
+    desc: "Run matrix onboarding in dry-run mode"
+    cmds:
+      - bash tools/matrix_onboard.sh --mode dry-run
+
+  validate:
+    desc: "Run local schema validation on generated sample payload"
+    cmds:
+      - python tools/federate_policy.py \
+          --repo agent-devops-setups \
+          --harness codex \
+          --user core-operator \
+          --task-domain agentops \
+          --extensions codex-gate,agentops-ci \
+          --out /tmp/effective-policy.json
+      - python tools/validate_policy_payload.py \
+          --payload /tmp/effective-policy.json \
+          --policy-schema schemas/policy-resolution.schema.json \
+          --manifest-schema schemas/extension-manifest.schema.json \
+          --manifest-dir extensions/manifests \
+          --strict
+
+  rotation:
+    desc: "Run policy rotation diff check with persisted state"
+    cmds:
+      - python tools/audit_policy_rotation.py \
+          --repo-list agent-devops-setups,thegent,template-commons,portage,heliosCLI,cliproxyapi++,agentapi-plusplus \
+          --repo-root {{.ROOT_DIR}} \
+          --state /tmp/policy-rotation-state.json \
+          --out /tmp/policy-rotation-report.json \
+          --fail-on-change
+
+  clean:
+    desc: "Clean temporary files"
+    cmds:
+      - rm -f /tmp/effective-policy.json /tmp/policy-rotation-report.json
+
+env:
+  ROOT_DIR: .
