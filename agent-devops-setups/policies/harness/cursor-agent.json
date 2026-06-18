@@ -1,0 +1,16 @@
+{
+  "policy": {
+    "harness": {
+      "name": "Cursor-agent",
+      "command_prefixes": ["/bin/bash -lc", "npm", "node"],
+      "tool_contracts": {
+        "shell": {
+          "forbid": ["rm -rf /", "chmod -R 777", "git clean -fdx"],
+          "required_confirmation_for": ["rm -rf", "git reset"]
+        }
+      },
+      "documentation_contract": {
+      }
+    }
+  }
+}

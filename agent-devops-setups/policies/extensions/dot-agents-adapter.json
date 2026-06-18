@@ -1,0 +1,15 @@
+{
+  "policy": {
+    "extensions": {
+      "dot_agents_bridge": {
+        "enabled": true,
+        "allowed_origins": ["dot-agents.com"],
+        "sync_mode": "read-only",
+        "policy_shape": "policy_layer_fragment"
+      }
+    },
+    "integration": {
+      "prefer_local_authoritative": true
+    }
+  }
+}

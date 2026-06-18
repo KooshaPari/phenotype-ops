@@ -1,0 +1,28 @@
+{
+  "name": "dot-agents-bridge",
+  "version": "0.1.0",
+  "kind": "integration",
+  "scope": "global",
+  "targets": ["dot-agents", "agent-devops-setups", "policy-federation"],
+  "fragment": {
+    "extensions": {
+      "dot_agents_bridge": {
+        "sync_mode": "read-only",
+        "allowed_incoming_origins": ["dot-agents.com"],
+        "default_policy_shape": "json",
+        "confidence": "high"
+      }
+    },
+    "governance": {
+      "prefer_local_authority": true
+    }
+  },
+  "hooks": [
+    {
+      "name": "bridge-plan",
+      "when": "pre_task",
+      "command": "python tools/federate_policy.py --repo {repo} --harness {harness} --user {user} --task-domain {task_domain} --extensions dot-agents-bridge --out {out}"
+    }
+  ],
+  "integrations": ["dot-agents", "cursor", "claude", "codex"]
+}

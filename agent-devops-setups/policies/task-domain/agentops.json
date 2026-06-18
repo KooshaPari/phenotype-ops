@@ -1,0 +1,23 @@
+{
+  "policy": {
+    "task_domain": {
+      "name": "agentops",
+      "outputs": {
+        "required_artifacts": [
+          "docs/architecture.md",
+          "docs/01_RESEARCH.md"
+        ],
+        "include_changelog": true
+      },
+      "controls": {
+        "must_emit_audit": true,
+        "max_parallel_web_requests": 3,
+        "require_reproducible_context": true
+      }
+    },
+    "governance": {
+      "require_trace_matrix": true,
+      "trace_keys": ["scope", "decision", "evidence_file", "reviewer"]
+    }
+  }
+}

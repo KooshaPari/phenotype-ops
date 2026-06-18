@@ -1,0 +1,21 @@
+{
+  "policy": {
+    "repo": {
+      "name": "template-commons",
+      "policy_hints": {
+        "workflow_templates": {
+          "preferred": true,
+          "required_files": [
+            ".github/workflows/reusable-policy-gate.yml"
+          ]
+        },
+        "agent_docs": {
+          "require_session_docs": true
+        }
+      }
+    },
+    "ci": {
+      "required_checks": ["policy-gate", "lint", "test"]
+    }
+  }
+}

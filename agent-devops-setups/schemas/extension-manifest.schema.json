@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/extension-manifest.schema.json",
+  "title": "ExtensionManifest",
+  "type": "object",
+  "required": ["name", "version", "kind", "scope", "targets", "fragment"],
+  "properties": {
+    "name": { "type": "string" },
+    "version": { "type": "string" },
+    "kind": { "type": "string" },
+    "scope": { "type": "string" },
+    "targets": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "fragment": { "type": "object" },
+    "hooks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "when", "command"],
+        "properties": {
+          "name": { "type": "string" },
+          "when": { "type": "string" },
+          "command": { "type": "string" }
+        }
+      }
+    },
+    "constraints": { "type": "object" },
+    "integrations": { "type": "array", "items": { "type": "string" } },
+    "enabled_by_default": { "type": "boolean", "default": false }
+  }
+}
