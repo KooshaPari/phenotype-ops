@@ -68,3 +68,13 @@ bash scripts/repo-devops-checker.sh /path/to/target-repo
 # Onboard a fleet of repos
 bash tools/matrix_onboard.sh repos.tsv
 ```
+
+---
+
+## Architecture Decision Records
+
+> **Status:** No ADRs documented yet. This table will be populated as architecture decisions are recorded.
+
+| ID | Title | Status | Location |
+|----|-------|--------|----------|
+| --- | *No ADRs recorded* | --- | --- |
