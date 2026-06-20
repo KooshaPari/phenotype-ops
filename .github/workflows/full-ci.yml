@@ -22,6 +22,15 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
+      - name: phenotype-pin (workflow corruption gate)
+        run: |
+          set -euo pipefail
+          if [ ! -d .github/workflows ]; then
+            echo "::notice::No .github/workflows directory; skipping phenotype-pin gate."
+            exit 0
+          fi
+          python3 tools/phenotype-pin/phenotype-pin.py --check-only .github/workflows/*.yml
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
         with:

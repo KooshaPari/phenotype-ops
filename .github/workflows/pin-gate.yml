@@ -1,0 +1,45 @@
+name: phenotype-pin (workflow corruption gate)
+
+# Standalone trigger so the gate fires on push/PR even though full-ci.yml is
+# workflow_call-only. See tools/phenotype-pin/README.md for context.
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - ".github/workflows/**"
+      - "tools/phenotype-pin/**"
+  pull_request:
+    branches: [main, master]
+    paths:
+      - ".github/workflows/**"
+      - "tools/phenotype-pin/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pin-check:
+    name: Detect workflow SHA/template corruption
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+
+      - name: Run phenotype-pin --check-only
+        run: |
+          set -euo pipefail
+          if [ ! -d .github/workflows ]; then
+            echo "::notice::No .github/workflows directory; nothing to gate."
+            exit 0
+          fi
+          # --check-only: detects corruption, never modifies files.
+          # Exit code 3 = corruption detected, build must fail.
+          python3 tools/phenotype-pin/phenotype-pin.py --check-only .github/workflows/*.yml

@@ -66,6 +66,11 @@ KNOWN_VERSIONS: Dict[Tuple[str, str], str] = {
 
 # Patterns that indicate corruption
 CORRUPT_SHA_PATTERN = re.compile(r'@[a-f0-9]{40}(?:@\{[^}]*\})?')
+# Double-SHA pattern: an older SHA concatenated to a newer one, e.g.
+# `actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5@11bd71901bbe5b1630ceea73d27597364c9af683`
+# This pattern was missed by the 2026-06-20 sweep (it predates the API-error pattern).
+# Groups: \1 = old SHA (drop), \2 = new SHA (keep).
+CORRUPT_DOUBLE_SHA_PATTERN = re.compile(r'@([a-f0-9]{40})@([a-f0-9]{40})')
 CORRUPT_TEMPLATE_PATTERN = re.compile(r'\$(\d{2,3})([a-zA-Z][\w.-]*[a-zA-Z_])(\d{2,3})')
 PIN_LINE_PATTERN = re.compile(r'^\s*uses:\s+([\w.-]+/[\w.-]+)@([^\s#]+)(?:\s+#\s*(.*))?\s*$')
 
@@ -124,7 +129,15 @@ def detect_corruption(content: str) -> Tuple[bool, list]:
             corruptions.append((lineno, line.strip(), "API-error-appended SHA"))
         if CORRUPT_TEMPLATE_PATTERN.search(line):
             corruptions.append((lineno, line.strip(), "Go template corrupted to $NNNvarNNN"))
+        if CORRUPT_DOUBLE_SHA_PATTERN.search(line):
+            corruptions.append((lineno, line.strip(), "double-SHA concatenation"))
     return bool(corruptions), corruptions
+
+
+def fix_double_sha(line: str) -> str:
+    """Repair @<old_sha>@<new_sha> -> @<new_sha> (keep the newer SHA)."""
+    # Replace "@<old40hex>@<new40hex>" with "@<new40hex>"
+    return CORRUPT_DOUBLE_SHA_PATTERN.sub(r'@\2', line)
 
 
 def fix_template_corruption(line: str) -> str:
@@ -164,12 +177,21 @@ def fix_workflow_file(path: Path, owner: str = "actions", fix: bool = False) -> 
     new_lines = []
     for lineno, line in enumerate(content.splitlines(), 1):
         new_line = line
-        # 1. Fix template corruption
+        # 1. Fix double-SHA corruption (@<old_sha>@<new_sha>) FIRST — the older
+        #    sweep missed this pattern entirely.
+        if CORRUPT_DOUBLE_SHA_PATTERN.search(new_line):
+            new_line = fix_double_sha(new_line)
+            m = re.search(r'uses:\s+([\w.-]+/[\w.-]+)@', new_line)
+            if m:
+                result["actions_fixed"].append(f"{m.group(1)}@<double-sha-deduplicated>")
+            result["lines_changed"] += 1
+
+        # 2. Fix template corruption
         if CORRUPT_TEMPLATE_PATTERN.search(new_line):
             new_line = fix_template_corruption(new_line)
             result["lines_changed"] += 1
 
-        # 2. Fix corrupted SHAs (strip API-error suffix even if we don't have a known SHA)
+        # 3. Fix corrupted SHAs (strip API-error suffix even if we don't have a known SHA)
         if "@{message" in new_line or '"Not Found"' in new_line or '"API"' in new_line:
             # Strip the trailing @{"message":"..."} regardless of lookup
             stripped = re.sub(
