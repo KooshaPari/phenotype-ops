@@ -1,5 +1,6 @@
 //! Pillar definitions and check execution
 
+use crate::config::{AppConfig, CheckDef};
 use crate::manifest::{CheckResult, PillarResult};
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
@@ -44,9 +45,16 @@ impl std::fmt::Display for Pillar {
 
 impl Pillar {
     pub fn all() -> [Pillar; 5] {
-        [Pillar::Quality, Pillar::Security, Pillar::Perf, Pillar::Compliance, Pillar::Docs]
+        [
+            Pillar::Quality,
+            Pillar::Security,
+            Pillar::Perf,
+            Pillar::Compliance,
+            Pillar::Docs,
+        ]
     }
 
+    /// Default checks for this pillar (used when no config override is provided).
     pub fn checks(&self) -> Vec<Check> {
         match self {
             Pillar::Quality => vec![
@@ -79,6 +87,30 @@ impl Pillar {
         }
     }
 
+    /// Return checks for this pillar, optionally overridden by config.
+    pub fn checks_with_config(&self, cfg: &AppConfig) -> Vec<Check> {
+        if let Some(ref overrides) = cfg.pillar_checks {
+            let defs: &[CheckDef] = match self {
+                Pillar::Quality => &overrides.quality,
+                Pillar::Security => &overrides.security,
+                Pillar::Perf => &overrides.perf,
+                Pillar::Compliance => &overrides.compliance,
+                Pillar::Docs => &overrides.docs,
+            };
+            if !defs.is_empty() {
+                return defs
+                    .iter()
+                    .map(|d| Check {
+                        name: d.name.clone(),
+                        command: d.command.clone(),
+                        globs: d.globs.clone(),
+                    })
+                    .collect();
+            }
+        }
+        self.checks()
+    }
+
     /// Should this pillar be skipped based on changed files?
     pub fn should_skip(&self, changed_files: &[String]) -> Option<String> {
         let patterns = self.checks().into_iter().flat_map(|c| c.globs).collect::<Vec<_>>();
@@ -92,8 +124,18 @@ impl Pillar {
         }
     }
 
+    /// Run default checks for this pillar.
     pub fn run_checks(&self) -> Result<PillarResult> {
-        let checks = self.checks();
+        self.run_checks_with_checks(&self.checks())
+    }
+
+    /// Run checks using a config (applies overrides if present).
+    pub fn run_checks_with_config(&self, cfg: &AppConfig) -> Result<PillarResult> {
+        let checks = self.checks_with_config(cfg);
+        self.run_checks_with_checks(&checks)
+    }
+
+    fn run_checks_with_checks(&self, checks: &[Check]) -> Result<PillarResult> {
         let mut results = HashMap::new();
         let mut total_duration = 0u64;
         let mut all_passed = true;
@@ -101,24 +143,24 @@ impl Pillar {
         for check in checks {
             info!("  Running check: {}", check.name);
             let start = Instant::now();
-
-            let (passed, output, error) = run_check(&check);
+            let (passed, output, error) = run_check(check);
             let duration = start.elapsed().as_millis() as u64;
             total_duration += duration;
-
             if !passed {
                 all_passed = false;
             }
-
-            results.insert(check.name.clone(), CheckResult {
-                name: check.name.clone(),
-                passed,
-                duration_ms: duration,
-                output: if output.is_empty() { None } else { Some(output) },
-                error: if error.is_empty() { None } else { Some(error) },
-                skipped: Some(false),
-                skip_reason: None,
-            });
+            results.insert(
+                check.name.clone(),
+                CheckResult {
+                    name: check.name.clone(),
+                    passed,
+                    duration_ms: duration,
+                    output: if output.is_empty() { None } else { Some(output) },
+                    error: if error.is_empty() { None } else { Some(error) },
+                    skipped: Some(false),
+                    skip_reason: None,
+                },
+            );
         }
 
         Ok(PillarResult {
@@ -130,14 +172,15 @@ impl Pillar {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct Check {
-    name: String,
-    command: String,
-    globs: Vec<String>,
+    pub name: String,
+    pub command: String,
+    pub globs: Vec<String>,
 }
 
 impl Check {
-    fn new(name: &str, command: &str, globs: Vec<&str>) -> Self {
+    pub fn new(name: &str, command: &str, globs: Vec<&str>) -> Self {
         Self {
             name: name.into(),
             command: command.into(),
@@ -147,11 +190,7 @@ impl Check {
 }
 
 fn run_check(check: &Check) -> (bool, String, String) {
-    let output = Command::new("sh")
-        .arg("-c")
-        .arg(&check.command)
-        .output();
-
+    let output = Command::new("sh").arg("-c").arg(&check.command).output();
     match output {
         Ok(out) => {
             let stdout = String::from_utf8_lossy(&out.stdout).to_string();
@@ -165,7 +204,6 @@ fn run_check(check: &Check) -> (bool, String, String) {
 
 /// Simple glob matching (supports * and **)
 fn glob_match(pattern: &str, path: &str) -> bool {
-    // Convert glob to regex-like matching
     let regex_pattern = pattern
         .replace(".", "\\.")
         .replace("**", ".*")
@@ -173,9 +211,4 @@ fn glob_match(pattern: &str, path: &str) -> bool {
     regex::Regex::new(&format!("^{}$", regex_pattern))
         .map(|re| re.is_match(path))
         .unwrap_or(false)
-}
-
-/// Run all checks for a pillar
-pub fn run_pillar_checks(pillar: Pillar) -> Result<PillarResult> {
-    pillar.run_checks()
 }

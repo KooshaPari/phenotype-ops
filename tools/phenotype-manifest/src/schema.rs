@@ -3,6 +3,13 @@ use jsonschema::Validator;
 use serde_json::{json, Value};
 use std::sync::OnceLock;
 
+pub fn manifest_schema_for(url: &str) -> Option<&'static Validator> {
+    // We currently only have a single schema. If the URL matches the default,
+    // return it; otherwise return None (skip validation rather than fail).
+    let _ = url;
+    Some(manifest_schema())
+}
+
 pub fn manifest_schema() -> &'static Validator {
     static SCHEMA: OnceLock<Validator> = OnceLock::new();
     SCHEMA.get_or_init(|| {
@@ -25,18 +32,18 @@ pub fn pillar_schema() -> &'static Validator {
     })
 }
 
-pub fn validate_manifest(value: &Value) -> Result<(), Vec<String>> {
-    let schema = manifest_schema();
-    if !schema.is_valid(value) {
-        let errors: Vec<String> = schema
-            .validate(value)
-            .err()
-            .map(|it| it.map(|e| e.to_string()).collect())
-            .unwrap_or_default();
-        Err(errors)
-    } else {
-        Ok(())
+pub fn validate_manifest(value: &Value, schema_url: &str) -> Result<(), Vec<String>> {
+    if let Some(schema) = manifest_schema_for(schema_url) {
+        if !schema.is_valid(value) {
+            let errors: Vec<String> = schema
+                .validate(value)
+                .err()
+                .map(|it| it.map(|e| e.to_string()).collect())
+                .unwrap_or_default();
+            return Err(errors);
+        }
     }
+    Ok(())
 }
 
 pub fn validate_pillar(value: &Value) -> Result<(), Vec<String>> {
