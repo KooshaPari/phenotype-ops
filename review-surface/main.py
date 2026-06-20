@@ -11,13 +11,16 @@ import random
 import json
 import hashlib
 import hmac
+import logging
 from typing import Optional
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 
 import httpx
+import yaml
 from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.responses import JSONResponse
+from fastapi.testclient import TestClient
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 import structlog
@@ -46,6 +49,26 @@ structlog.configure(
         getattr(logging, settings.log_level.upper(), logging.INFO)
     ),
 )
+
+
+# ── Config YAML loader ──────────────────────────────────────────────────────────
+
+def load_config(path: str = "config.yaml") -> dict:
+    """Load runtime config from a YAML file.
+
+    Returns the parsed dict on success, or an empty dict if the file is missing
+    or unreadable. Missing-file is a soft-fail (returns {}) so the service can
+    still boot from environment variables alone.
+    """
+    try:
+        with open(path, "r") as f:
+            data = yaml.safe_load(f)
+            return data if isinstance(data, dict) else {}
+    except FileNotFoundError:
+        return {}
+    except Exception as e:
+        logger.warning("config_load_failed", path=path, error=str(e))
+        return {}
 
 
 # ── State ────────────────────────────────────────────────────────────────────────
@@ -352,6 +375,156 @@ async def clear_pr_state(owner: str, repo: str, number: int):
     pr_key = _get_pr_key(owner, repo, number)
     _pr_store.pop(pr_key, None)
     return JSONResponse({"status": "cleared", "pr": pr_key})
+
+
+# ── Self-Tests ───────────────────────────────────────────────────────────────────
+
+def run_tests() -> dict:
+    """Run the 4 self-tests for the unified review surface.
+
+    Each test prints ``PASS: <name>`` on success, or raises
+    ``AssertionError("FAIL: <name>: <reason>")`` on failure. Returns a summary
+    dict ``{"passed": int, "failed": int, "results": [{"name", "status"}]}``.
+    """
+    # Reset in-memory state so each test run is independent.
+    _pr_store.clear()
+    _rate_limiter.clear()
+
+    client = TestClient(app)
+    results: list[dict] = []
+
+    def _record(name: str, status: str, error: Optional[str] = None) -> None:
+        entry = {"name": name, "status": status}
+        if error is not None:
+            entry["error"] = error
+        results.append(entry)
+
+    def test_pr_opened_assigns_tool() -> None:
+        payload = {
+            "action": "opened",
+            "pull_request": {
+                "number": 1234,
+                "head": {"sha": "abc123def456"},
+            },
+            "repository": {
+                "name": "phenotype-ops",
+                "owner": {"login": "KooshaPari"},
+            },
+        }
+        resp = client.post(
+            "/webhook/github",
+            json=payload,
+            headers={"X-GitHub-Event": "pull_request"},
+        )
+        body = resp.json()
+        if body.get("status") != "processed":
+            raise AssertionError(
+                f"test_pr_opened_assigns_tool: expected status='processed', got {body.get('status')!r} (body={body!r})"
+            )
+        if body.get("pr") != "KooshaPari/phenotype-ops#1234":
+            raise AssertionError(
+                f"test_pr_opened_assigns_tool: expected pr='KooshaPari/phenotype-ops#1234', got {body.get('pr')!r}"
+            )
+        if body.get("backend") not in ("forge", "coderabbit", "copilot", "cursor"):
+            raise AssertionError(
+                f"test_pr_opened_assigns_tool: unexpected backend {body.get('backend')!r}"
+            )
+        print("PASS: test_pr_opened_assigns_tool")
+
+    def test_sticky_assignment() -> None:
+        # First webhook (opened) seeds the assignment.
+        payload_opened = {
+            "action": "opened",
+            "pull_request": {"number": 9999, "head": {"sha": "deadbeef"}},
+            "repository": {"name": "sticky-test-repo", "owner": {"login": "KooshaPari"}},
+        }
+        resp1 = client.post(
+            "/webhook/github",
+            json=payload_opened,
+            headers={"X-GitHub-Event": "pull_request"},
+        )
+        backend1 = resp1.json().get("backend")
+
+        # Second webhook (synchronize) for the SAME PR — must reuse the backend.
+        payload_sync = dict(payload_opened)
+        payload_sync["action"] = "synchronize"
+        resp2 = client.post(
+            "/webhook/github",
+            json=payload_sync,
+            headers={"X-GitHub-Event": "pull_request"},
+        )
+        backend2 = resp2.json().get("backend")
+
+        if backend1 != backend2:
+            raise AssertionError(
+                f"test_sticky_assignment: backend changed for same PR "
+                f"(opened={backend1!r}, synchronize={backend2!r})"
+            )
+        print("PASS: test_sticky_assignment")
+
+    def test_rotation_different_prs() -> None:
+        # Different PRs must be allowed to get different backends (sticky is per-PR).
+        backends_seen: set[str] = set()
+        for repo_name in ("repo-a", "repo-b", "repo-c", "repo-d", "repo-e"):
+            payload = {
+                "action": "opened",
+                "pull_request": {"number": 1, "head": {"sha": f"sha-{repo_name}"}},
+                "repository": {"name": repo_name, "owner": {"login": "KooshaPari"}},
+            }
+            resp = client.post(
+                "/webhook/github",
+                json=payload,
+                headers={"X-GitHub-Event": "pull_request"},
+            )
+            backends_seen.add(resp.json().get("backend"))
+        if len(backends_seen) < 2:
+            raise AssertionError(
+                f"test_rotation_different_prs: expected >=2 distinct backends across 5 PRs, got {sorted(backends_seen)}"
+            )
+        print("PASS: test_rotation_different_prs")
+
+    def test_config_loads() -> None:
+        cfg = load_config("config.yaml")
+        if not isinstance(cfg, dict):
+            raise AssertionError(
+                f"test_config_loads: expected dict from load_config, got {type(cfg).__name__}"
+            )
+        tools = cfg.get("tools")
+        if not isinstance(tools, list):
+            raise AssertionError(
+                f"test_config_loads: expected 'tools' to be a list, got {type(tools).__name__}"
+            )
+        if len(tools) != 4:
+            raise AssertionError(
+                f"test_config_loads: expected 4 tools, got {len(tools)}"
+            )
+        if cfg.get("rotation_strategy") != "sticky":
+            raise AssertionError(
+                f"test_config_loads: expected rotation_strategy='sticky', got {cfg.get('rotation_strategy')!r}"
+            )
+        print("PASS: test_config_loads")
+
+    tests = [
+        ("test_pr_opened_assigns_tool", test_pr_opened_assigns_tool),
+        ("test_sticky_assignment", test_sticky_assignment),
+        ("test_rotation_different_prs", test_rotation_different_prs),
+        ("test_config_loads", test_config_loads),
+    ]
+
+    for name, fn in tests:
+        try:
+            fn()
+            _record(name, "passed")
+        except AssertionError as e:
+            print(f"FAIL: {name}: {e}")
+            _record(name, "failed", str(e))
+        except Exception as e:
+            print(f"FAIL: {name}: {type(e).__name__}: {e}")
+            _record(name, "failed", f"{type(e).__name__}: {e}")
+
+    passed = sum(1 for r in results if r["status"] == "passed")
+    failed = len(results) - passed
+    return {"passed": passed, "failed": failed, "results": results}
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────────

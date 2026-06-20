@@ -1,0 +1,30 @@
+# phenotype-review-surface — runtime configuration
+# Loaded by main.py on startup; env vars override file values.
+tools:
+  - name: forge
+    enabled: true
+    rate_limit_per_hour: 30
+    cost_per_review: 0.00  # local agent
+  - name: coderabbit
+    enabled: true
+    rate_limit_per_hour: 20
+    cost_per_review: 0.15
+  - name: copilot
+    enabled: true
+    rate_limit_per_hour: 25
+    cost_per_review: 0.10
+  - name: cursor
+    enabled: true
+    rate_limit_per_hour: 15
+    cost_per_review: 0.20
+
+rotation_strategy: sticky  # one of: random | sticky | round_robin
+
+assignment_persistence: sqlite_file  # one of: memory | sqlite_file | postgres_url
+sqlite_path: /tmp/review-surface-state.db
+# postgres_url: postgres://user:pass@host:5432/db  # uncomment if using postgres
+
+rate_limit_backoff_seconds: 60
+
+webhook_secret_env: GITHUB_WEBHOOK_SECRET
+github_token_env: GITHUB_TOKEN
