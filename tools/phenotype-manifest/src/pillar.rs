@@ -1,11 +1,11 @@
 //! Pillar definitions and check execution
 
 use crate::manifest::{CheckResult, PillarResult};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 use std::process::Command;
 use std::time::Instant;
-use tracing::{debug, info};
+use tracing::info;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Pillar {
@@ -130,7 +130,7 @@ impl Pillar {
     }
 }
 
-struct Check {
+pub struct Check {
     name: String,
     command: String,
     globs: Vec<String>,

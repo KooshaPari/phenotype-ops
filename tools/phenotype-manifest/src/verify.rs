@@ -4,10 +4,8 @@ use crate::cli::{OutputFormat, VerifyArgs};
 use crate::crypto::{load_verifying_key, verify_manifest};
 use crate::manifest::{Manifest, VerificationResult};
 use anyhow::{anyhow, Context, Result};
-use chrono::Utc;
 use std::fs;
-use std::path::Path;
-use tracing::{info, warn};
+use tracing::info;
 
 pub fn verify_manifest_cmd(args: VerifyArgs) -> Result<()> {
     info!("Verifying manifest: {}", args.manifest.display());
