@@ -1,0 +1,25 @@
+# phenotype-ops CODEOWNERS (ADR-018, ADR-021, ADR-023)
+# Default: KooshaPari owns all paths
+*       @KooshaPari
+
+# Manifest CLI
+/tools/phenotype-manifest/   @KooshaPari
+
+# Review surface
+/review-surface/             @KooshaPari
+
+# Reusable CI workflows
+/.github/workflows/          @KooshaPari
+
+# Governance templates
+/governance/                 @KooshaPari
+
+# Policies / schemas
+/policies/                   @KooshaPari
+/templates/                  @KooshaPari
+
+# Pillar definitions
+/pillars/                    @KooshaPari
+
+# Agent DevOps Setups
+/agent-devops-setups/        @KooshaPari
