@@ -1,71 +1,92 @@
 //! phenotype-manifest — Attestation manifest generator and validator
+//!
+//! Generates signed manifests for pre-push hooks and validates them in CI.
+
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-use phenotype_manifest::cli::{GenerateArgs, ShowArgs, VerifyArgs};
-use phenotype_manifest::config::AppConfig;
-use phenotype_manifest::crypto::{generate_keypair, save_keypair};
-use phenotype_manifest::generate::generate_manifest;
-use phenotype_manifest::manifest::Manifest;
-use phenotype_manifest::pillar::Pillar;
-use phenotype_manifest::schema::validate_manifest;
-use phenotype_manifest::verify::verify_manifest_cmd as verify_manifest;
+mod cli;
+mod crypto;
+mod generate;
+mod manifest;
+mod pillar;
+mod schema;
+mod verify;
+
+use cli::{GenerateArgs, VerifyArgs, ShowArgs};
+use generate::generate_manifest;
+use verify::verify_manifest;
 
 #[derive(Parser)]
 #[command(name = "phenotype-manifest", version, about, long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+
+    /// Enable verbose output
     #[arg(short, long, global = true)]
     verbose: bool,
 }
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Generate a signed attestation manifest
     Generate(GenerateArgs),
+
+    /// Verify a signed attestation manifest
     Verify(VerifyArgs),
+
+    /// Show manifest contents (human-readable)
     Show(ShowArgs),
+
+    /// Run a specific pillar check locally
     RunPillar {
+        /// Pillar to run (quality|security|perf|compliance|docs)
         pillar: String,
+
+        /// Output format (json|human)
         #[arg(short, long, default_value = "human")]
         format: String,
     },
+
+    /// Initialize repo with manifest key and lefthook
     Init {
-        #[arg(long)]
-        key: Option<PathBuf>,
+        /// Path to Ed25519 private key
+        #[arg(long, default_value = "~/.ssh/manifest")]
+        key: PathBuf,
+
+        /// Generate new key if missing
         #[arg(long)]
         generate_key: bool,
     },
 }
 
 fn main() -> anyhow::Result<()> {
-    let cfg = AppConfig::load();
     let cli = Cli::parse();
 
-    // Use config log_level unless --verbose is set
     if cli.verbose {
-        tracing_subscriber::fmt().with_env_filter("debug").init();
+        tracing_subscriber::fmt()
+            .with_env_filter("debug")
+            .init();
     } else {
         tracing_subscriber::fmt()
-            .with_env_filter(&cfg.log_level)
+            .with_env_filter("info")
             .init();
     }
 
     match cli.command {
-        Commands::Generate(args) => generate_manifest(args, &cfg),
-        Commands::Verify(args) => verify_manifest(args, &cfg),
-        Commands::Show(args) => show_manifest(args, &cfg),
-        Commands::RunPillar { pillar, format } => run_pillar(&pillar, &format, &cfg),
-        Commands::Init { key, generate_key } => init_repo(key, generate_key, &cfg),
+        Commands::Generate(args) => generate_manifest(args),
+        Commands::Verify(args) => verify_manifest(args),
+        Commands::Show(args) => show_manifest(args),
+        Commands::RunPillar { pillar, format } => run_pillar(&pillar, &format),
+        Commands::Init { key, generate_key } => init_repo(key, generate_key),
     }
 }
 
-fn show_manifest(args: ShowArgs, cfg: &AppConfig) -> anyhow::Result<()> {
-    let path = args.manifest.unwrap_or(cfg.manifest_path.clone());
-    let content = std::fs::read_to_string(&path)?;
-    let json: serde_json::Value = serde_json::from_str(&content)?;
-    validate_manifest(&json, &cfg.schema_url).map_err(|errs| anyhow::anyhow!(errs.join("; ")))?;
-    let manifest: Manifest = serde_json::from_value(json)?;
+fn show_manifest(args: ShowArgs) -> anyhow::Result<()> {
+    let content = std::fs::read_to_string(&args.manifest)?;
+    let manifest: manifest::Manifest = serde_json::from_str(&content)?;
+
     if args.json {
         println!("{}", serde_json::to_string_pretty(&manifest)?);
     } else {
@@ -74,68 +95,53 @@ fn show_manifest(args: ShowArgs, cfg: &AppConfig) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run_pillar(pillar: &str, format: &str, cfg: &AppConfig) -> anyhow::Result<()> {
+fn run_pillar(pillar: &str, format: &str) -> anyhow::Result<()> {
+    use pillar::Pillar;
     let pillar_enum = pillar.parse::<Pillar>()?;
-    let result = pillar_enum.run_checks_with_config(cfg)?;
+    let result = pillar_enum.run_checks()?;
+
     if format == "json" {
         println!("{}", serde_json::to_string_pretty(&result)?);
     } else {
-        println!(
-            "Pillar {}: {} ({} ms)",
-            pillar_enum,
-            if result.passed { "PASS" } else { "FAIL" },
-            result.duration_ms
-        );
-        for (name, check) in &result.checks {
-            println!(
-                "  {} {} ({} ms)",
-                if check.passed { "[OK]" } else { "[FAIL]" },
-                name,
-                check.duration_ms
-            );
-        }
+        println!("{}", result.format_human());
     }
     Ok(())
 }
 
-fn init_repo(key: Option<PathBuf>, generate_key: bool, cfg: &AppConfig) -> anyhow::Result<()> {
+fn init_repo(key_path: PathBuf, generate_key: bool) -> anyhow::Result<()> {
     use std::os::unix::fs::PermissionsExt;
 
-    // Use provided key path or fall back to config default
-    let key_path = key.unwrap_or_else(|| AppConfig::expand_home(&cfg.private_key_path));
-    let key_path = AppConfig::expand_home(&key_path);
+    // Expand tilde
+    let key_path = shellexpand::tilde(&key_path.to_string_lossy()).into_owned();
+    let key_path = PathBuf::from(key_path);
 
     if generate_key || !key_path.exists() {
-        println!("Generating Ed25519 key at {}", key_path.display());
-        let (signing_key, verifying_key) = generate_keypair();
+        println!("🔑 Generating Ed25519 key at {}", key_path.display());
+        let mut csprng = rand::rngs::OsRng;
+        let signing_key = ed25519_dalek::SigningKey::generate(&mut csprng);
+
         std::fs::create_dir_all(key_path.parent().unwrap())?;
-        let pubkey_path = key_path.with_extension("pub");
-        save_keypair(&signing_key, &verifying_key, &key_path, &pubkey_path)?;
+        std::fs::write(&key_path, signing_key.to_bytes())?;
         std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o600))?;
-        println!(
-            "Key pair generated: {} + {}",
-            key_path.display(),
-            pubkey_path.display()
-        );
+
+        let verifying_key = signing_key.verifying_key();
+        let pubkey_path = key_path.with_extension("pub");
+        std::fs::write(&pubkey_path, verifying_key.to_bytes())?;
+        println!("✅ Key pair generated: {} + {}", key_path.display(), pubkey_path.display());
     }
 
-    // Copy lefthook.yml from configurable template path
-    let lefthook_template = AppConfig::expand_home(&cfg.lefthook_template);
-    let lefthook_src = std::env::current_dir()?.join(&lefthook_template);
+    // Copy lefthook.yml from phenotype-ops
+    let lefthook_src = std::env::current_dir()?.join("../../governance/lefthook.yml");
     let lefthook_dst = std::env::current_dir()?.join("lefthook.yml");
     if lefthook_src.exists() {
-        std::fs::copy(&lefthook_src, &lefthook_dst)?;
-        println!("Copied lefthook.yml from {}", lefthook_src.display());
-    } else {
-        println!(
-            "lefthook template not found at {}; please copy manually",
-            lefthook_src.display()
-        );
+        std::fs::copy(&lefthook_src, &lefthook_dstook_dst)?;
+        println!("✅ Copied lefthook.yml");
     }
 
-    println!("Next steps:");
+    println!("📋 Next steps:");
     println!("   1. lefthook install");
     println!("   2. Add public key to .github/manifest.pubkey.pem");
     println!("   3. git push (will generate manifest)");
+
     Ok(())
 }

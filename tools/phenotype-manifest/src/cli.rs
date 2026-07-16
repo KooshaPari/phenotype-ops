@@ -6,24 +6,24 @@ use std::path::PathBuf;
 #[derive(Args, Debug, Clone)]
 pub struct GenerateArgs {
     /// Path to Ed25519 private key (PEM or raw)
-    #[arg(long, short)]
-    pub key: Option<PathBuf>,
+    #[arg(long, short, default_value = "~/.ssh/manifest")]
+    pub key: PathBuf,
 
     /// Output manifest path
-    #[arg(long, short)]
-    pub output: Option<PathBuf>,
+    #[arg(long, short, default_value = ".manifest.signed.json")]
+    pub output: PathBuf,
 
     /// Require all 5 pillars to pass
-    #[arg(long)]
-    pub require_all_pillars: Option<bool>,
+    #[arg(long, default_value = "true")]
+    pub require_all_pillars: bool,
 
     /// Minimum health score 0.0-1.0 (fail if below)
-    #[arg(long)]
-    pub fail_below: Option<f64>,
+    #[arg(long, default_value = "0.90")]
+    pub fail_below: f64,
 
     /// Maximum manifest age in hours
-    #[arg(long)]
-    pub max_age_hours: Option<u64>,
+    #[arg(long, default_value = "24")]
+    pub max_age_hours: u64,
 
     /// Skip specific pillars (comma-separated)
     #[arg(long, value_delimiter = ',')]
@@ -41,24 +41,24 @@ pub struct GenerateArgs {
 #[derive(Args, Debug, Clone)]
 pub struct VerifyArgs {
     /// Path to signed manifest
-    #[arg(long, short)]
-    pub manifest: Option<PathBuf>,
+    #[arg(long, short, default_value = ".manifest.signed.json")]
+    pub manifest: PathBuf,
 
     /// Path to Ed25519 public key (PEM or raw)
-    #[arg(long, short = 'p')]
-    pub pubkey: Option<PathBuf>,
+    #[arg(long, short = 'p', default_value = ".github/manifest.pubkey.pem")]
+    pub pubkey: PathBuf,
 
     /// Require all 5 pillars to be present
-    #[arg(long)]
-    pub require_all_pillars: Option<bool>,
+    #[arg(long, default_value = "true")]
+    pub require_all_pillars: bool,
 
     /// Minimum health score 0.0-1.0
-    #[arg(long)]
-    pub min_health_score: Option<f64>,
+    #[arg(long, default_value = "0.90")]
+    pub min_health_score: f64,
 
     /// Maximum manifest age in hours
-    #[arg(long)]
-    pub max_age_hours: Option<u64>,
+    #[arg(long, default_value = "24")]
+    pub max_age_hours: u64,
 
     /// Output format
     #[arg(long, value_enum, default_value = "human")]
@@ -72,8 +72,8 @@ pub struct VerifyArgs {
 #[derive(Args, Debug, Clone)]
 pub struct ShowArgs {
     /// Path to signed manifest
-    #[arg(long, short)]
-    pub manifest: Option<PathBuf>,
+    #[arg(default_value = ".manifest.signed.json")]
+    pub manifest: PathBuf,
 
     /// Output as JSON
     #[arg(long)]
